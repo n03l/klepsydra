@@ -1,0 +1,38 @@
+{
+  "timers": [
+    {
+      "name": "Short",
+      "description": "  Two quick\n intervals  ",
+      "countdown": 2,
+      "intervals": [
+        { "name": "Alpha", "duration": 5, "color": "#e53935", "comment": "  Keep\n it   steady  " },
+        { "name": "Beta", "duration": "0:04", "color": "yellow" }
+      ]
+    },
+    {
+      "name": "Rounds",
+      "description": "Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum Lorem ipsum ",
+      "prepare": 3,
+      "countdown": 0,
+      "halfway": true,
+      "intervals": [
+        { "repeat": 2, "intervals": [
+          { "name": "Work", "duration": 10, "comment": "Push push push push push push push push push push push push push push push push push push push push push push push push push push push" },
+          { "name": "Rest", "duration": 6, "halfway": false }
+        ]}
+      ]
+    },
+    {
+      "name": "<img src=x onerror=alert(1)>",
+      "description": "<b onmouseover=alert(3)>bold</b>",
+      "intervals": [ { "name": "<script>alert(2)</script>", "duration": 2, "comment": "<img src=y onerror=alert(4)>" } ]
+    },
+    { "name": "Bad colour", "intervals": [ { "name": "X", "duration": 5, "color": "red;background:url(https://evil.example/)" } ] },
+    { "name": "Bad duration", "intervals": [ { "name": "X", "duration": "abc" } ] },
+    { "name": "Too many", "intervals": [ { "repeat": 100, "intervals": [ { "repeat": 100, "intervals": [ { "name": "X", "duration": 1 } ] } ] } ] },
+    { "name": "Proto", "__proto__": { "intervals": [ { "name": "X", "duration": 1 } ] } },
+    "not an object",
+    { "name": "Bad description", "description": 42, "intervals": [ { "name": "X", "duration": 5 } ] },
+    { "name": "Bad comment", "intervals": [ { "name": "X", "duration": 5, "comment": ["x"] } ] }
+  ]
+}

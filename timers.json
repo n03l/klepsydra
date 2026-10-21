@@ -1,0 +1,188 @@
+{
+  "timers": [
+    {
+      "name": "HIIT circuit",
+      "description": "3 rounds of squats, push-ups and burpees (40 s on, 20 s rest), with warm-up and cool-down.",
+      "prepare": 10,
+      "countdown": 3,
+      "halfway": true,
+      "intervals": [
+        { "name": "Warm up", "duration": "3:00", "color": "#fb8c00", "comment": "Easy pace: jumping jacks, arm circles, bodyweight squats." },
+        { "repeat": 3, "intervals": [
+          { "name": "Squats", "duration": 40, "color": "#2196f3", "comment": "Hips back, chest up, knees track over toes." },
+          { "name": "Rest", "duration": 20, "color": "#e53935", "halfway": false },
+          { "name": "Push-ups", "duration": 40, "color": "#8e24aa", "comment": "Body in a straight line, elbows at about 45°." },
+          { "name": "Rest", "duration": 20, "color": "#e53935", "halfway": false },
+          { "name": "Burpees", "duration": 40, "color": "#00897b", "comment": "Chest to the floor, then jump and clap overhead." },
+          { "name": "Rest", "duration": 60, "color": "#e53935", "halfway": false }
+        ]},
+        { "name": "Cool down", "duration": "5:00", "color": "#3949ab", "comment": "Walk, then easy stretches for legs and chest." }
+      ]
+    },
+    {
+      "name": "Plank x3",
+      "description": "Three 1-minute planks with 30 s rest. Core endurance.",
+      "countdown": 5,
+      "intervals": [
+        { "repeat": 3, "intervals": [
+          { "name": "Plank", "duration": 60, "comment": "Elbows under shoulders, squeeze glutes, don't let the hips sag." },
+          { "name": "Rest", "duration": 30 }
+        ]}
+      ]
+    },
+    {
+      "name": "Mobility #A: Hamstrings, adductors and back",
+      "description": "Stretch at ~6/10, never into sharp pain. Good after a lower-body day; avoid before heavy squats or deadlifts.",
+      "countdown": 3,
+      "intervals": [
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Cat-cow", "duration": "1:00", "color": "#00897b", "comment": "Slow, segment by segment." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Hamstring strap – left", "duration": "1:30", "color": "#1e88e5", "comment": "Hold 20 s → press 5 s at ~30% → relax deeper. 3 rounds." },
+        { "name": "Hamstring strap – right", "duration": "1:30", "color": "#1565c0", "comment": "Hold 20 s → press 5 s at ~30% → relax deeper. 3 rounds." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Standing forward fold", "duration": "2:00", "color": "#43a047", "comment": "Knees bent, chest on thighs, slowly straighten. Hinge from the hips." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Seated straddle (pancake)", "duration": "3:00", "color": "#8e24aa", "comment": "Long spine, lean from the hips, hands on the floor or a block." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Child's pose", "duration": "0:45", "color": "#fb8c00", "comment": "Hips to heels, arms long, breathe into the back." },
+        { "name": "Thread the needle – left", "duration": "0:30", "color": "#f4511e", "comment": "Slide the arm under, shoulder and ear to the floor." },
+        { "name": "Thread the needle – right", "duration": "0:30", "color": "#d84315", "comment": "Slide the arm under, shoulder and ear to the floor." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Thoracic open book – left", "duration": "1:00", "color": "#e53935", "comment": "Knees stacked, rotate the top arm open." },
+        { "name": "Thoracic open book – right", "duration": "1:00", "color": "#c62828", "comment": "Knees stacked, rotate the top arm open." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Chin tucks (10 slow reps)", "duration": "0:40", "color": "#3949ab", "comment": "Glide the head back, keep eyes level." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Upper trap stretch – left", "duration": "0:30", "color": "#6d4c41", "comment": "Ear to shoulder, opposite hand reaching down." },
+        { "name": "Upper trap stretch – right", "duration": "0:30", "color": "#4e342e", "comment": "Ear to shoulder, opposite hand reaching down." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Levator stretch – left", "duration": "0:20", "color": "#00acc1", "comment": "Nose toward armpit." },
+        { "name": "Levator stretch – right", "duration": "0:20", "color": "#00838f", "comment": "Nose toward armpit." }
+      ]
+    },
+    {
+      "name": "Mobility #B: Hips, split and shoulders",
+      "description": "Hip rotation, front-split and shoulder mobility, plus neck. Stretch at ~6/10, never into sharp pain.",
+      "countdown": 3,
+      "intervals": [
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "90/90 hip switches", "duration": "2:00", "color": "#00897b", "comment": "Rotate side to side, lean over the front shin at the end." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Frog stretch", "duration": "2:00", "color": "#43a047", "comment": "Knees wide, shins parallel, rock then hold." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Couch stretch – left", "duration": "1:00", "color": "#e53935", "comment": "Squeeze the glute of the back leg." },
+        { "name": "Couch stretch – right", "duration": "1:00", "color": "#c62828", "comment": "Squeeze the glute of the back leg." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Half split ↔ lunge rocking – left", "duration": "1:00", "color": "#1e88e5", "comment": "Rock between half split and lunge." },
+        { "name": "Front split hold – left", "duration": "0:30", "color": "#1e88e5", "comment": "Settle into the split, no bouncing." },
+        { "name": "Half split ↔ lunge rocking – right", "duration": "1:00", "color": "#1565c0", "comment": "Rock between half split and lunge." },
+        { "name": "Front split hold – right", "duration": "0:30", "color": "#1565c0", "comment": "Settle into the split, no bouncing." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Deep squat hold", "duration": "1:30", "color": "#8e24aa", "comment": "Elbows push knees out, heels down (plate under heels if needed)." },
+
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Wall slides (10 reps)", "duration": "0:45", "color": "#fb8c00", "comment": "Back and arms against the wall." },
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Pass-throughs (10 reps)", "duration": "0:45", "color": "#f4511e", "comment": "Band or stick, arms straight." },
+        { "name": "Get in position", "duration": 10, "color": "#546e7a" },
+        { "name": "Doorway pec stretch – left", "duration": "0:30", "color": "#6d4c41", "comment": "Forearm on the frame, step through until you feel the chest." },
+        { "name": "Doorway pec stretch – right", "duration": "0:30", "color": "#4e342e", "comment": "Forearm on the frame, step through until you feel the chest." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Chin tucks (10 slow reps)", "duration": "0:40", "color": "#3949ab", "comment": "Glide the head back, keep eyes level." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Upper trap stretch – left", "duration": "0:30", "color": "#5d4037", "comment": "Ear to shoulder, opposite hand reaching down." },
+        { "name": "Upper trap stretch – right", "duration": "0:30", "color": "#3e2723", "comment": "Ear to shoulder, opposite hand reaching down." },
+
+        { "name": "Get in position", "duration": 5, "color": "#546e7a" },
+        { "name": "Levator stretch – left", "duration": "0:20", "color": "#00acc1", "comment": "Nose toward armpit." },
+        { "name": "Levator stretch – right", "duration": "0:20", "color": "#00838f", "comment": "Nose toward armpit." }
+      ]
+    },
+    {
+      "name": "Hangboard: max hangs and repeaters",
+      "description": "Warm-up hangs, max hangs (5 × 10 s, 3 min rest), then repeaters (3 sets of 6 × 7 s on / 3 s off). About 40 min.",
+      "prepare": 10,
+      "countdown": 3,
+      "intervals": [
+        { "name": "Warm up", "duration": "5:00", "color": "#fb8c00", "comment": "Raise the pulse, arm circles, scapular pulls, easy climbing or band pulls." },
+
+        { "name": "Warm-up hang", "duration": 10, "color": "#43a047", "comment": "Big edge, feet on a chair. About 50% effort." },
+        { "name": "Rest", "duration": 50, "color": "#e53935" },
+        { "name": "Warm-up hang", "duration": 10, "color": "#43a047", "comment": "Max hang edge, some weight off. About 70% effort." },
+        { "name": "Rest", "duration": 50, "color": "#e53935" },
+        { "name": "Warm-up hang", "duration": 10, "color": "#43a047", "comment": "Max hang edge, bodyweight. About 85% effort." },
+        { "name": "Rest", "duration": "2:00", "color": "#e53935", "comment": "Set the load for the max hangs." },
+
+        { "repeat": 5, "intervals": [
+          { "name": "Max hang", "duration": 10, "color": "#1e88e5", "comment": "20 mm edge, half crimp, shoulders engaged. A load you could hold for about 13 s." },
+          { "name": "Rest", "duration": "3:00", "color": "#e53935", "comment": "Full rest: shake out, chalk up. Drop the load if a hang fails early." }
+        ]},
+
+        { "repeat": 3, "intervals": [
+          { "repeat": 6, "intervals": [
+            { "name": "Repeater hang", "duration": 7, "color": "#8e24aa", "comment": "Same edge, bodyweight or a little off. Smooth on and off, no kipping." },
+            { "name": "Off", "duration": 3, "color": "#546e7a" }
+          ]},
+          { "name": "Rest", "duration": "3:00", "color": "#e53935" }
+        ]},
+
+        { "name": "Cool down", "duration": "3:00", "color": "#3949ab", "comment": "Forearm flexor and extensor stretches, wrist circles, open-hand shakes." }
+      ]
+    },
+    {
+      "name": "No-hangs: one hand at a time",
+      "description": "Lifting from an edge block or loading pin, left and right separately: max pulls (6 × 10 s), then repeaters (3 sets of 6 × 7/3 s). About 40 min.",
+      "prepare": 10,
+      "countdown": 3,
+      "intervals": [
+        { "name": "Warm up", "duration": "5:00", "color": "#fb8c00", "comment": "Raise the pulse, arm circles, scapular pulls, light band pulls." },
+
+        { "repeat": 3, "intervals": [
+          { "name": "Left – warm-up pull", "duration": 10, "color": "#43a047", "comment": "Light, then heavier each round: about 50%, 70%, 85%." },
+          { "name": "Switch hands", "duration": 20, "color": "#546e7a" },
+          { "name": "Right – warm-up pull", "duration": 10, "color": "#2e7d32", "comment": "Light, then heavier each round: about 50%, 70%, 85%." },
+          { "name": "Rest", "duration": 40, "color": "#e53935" }
+        ]},
+        { "name": "Rest", "duration": "1:30", "color": "#e53935", "comment": "Set the weight for the max pulls." },
+
+        { "repeat": 6, "intervals": [
+          { "name": "Left – max pull", "duration": 10, "color": "#1e88e5", "comment": "20 mm edge, half crimp, arm straight, shoulder engaged. Lift smoothly, no jerk." },
+          { "name": "Switch hands", "duration": 20, "color": "#546e7a" },
+          { "name": "Right – max pull", "duration": 10, "color": "#8e24aa", "comment": "20 mm edge, half crimp, arm straight, shoulder engaged. Lift smoothly, no jerk." },
+          { "name": "Rest", "duration": "1:30", "color": "#e53935", "comment": "Each hand rests about 2 min between pulls." }
+        ]},
+        { "name": "Rest", "duration": "1:00", "color": "#e53935", "comment": "Lighten the weight for repeaters: about 60–70% of the max pull." },
+
+        { "repeat": 3, "intervals": [
+          { "repeat": 6, "intervals": [
+            { "name": "Left – pull", "duration": 7, "color": "#1e88e5", "comment": "Lift, hold, set down. Same grip on every rep." },
+            { "name": "Off", "duration": 3, "color": "#546e7a" }
+          ]},
+          { "name": "Switch hands", "duration": 30, "color": "#546e7a" },
+          { "repeat": 6, "intervals": [
+            { "name": "Right – pull", "duration": 7, "color": "#8e24aa", "comment": "Lift, hold, set down. Same grip on every rep." },
+            { "name": "Off", "duration": 3, "color": "#546e7a" }
+          ]},
+          { "name": "Rest", "duration": "2:00", "color": "#e53935" }
+        ]},
+
+        { "name": "Cool down", "duration": "3:00", "color": "#3949ab", "comment": "Forearm flexor and extensor stretches, wrist circles, open-hand shakes." }
+      ]
+    }
+  ]
+}
