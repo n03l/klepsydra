@@ -2,7 +2,7 @@
 
 An interval timer app. It's a static web app with no build step and no backend, installable on a phone as a PWA and usable offline.
 
-**Try it:** <https://n03l.github.io/klepsydra/>
+**Try it:** <https://klepsydra-nu.vercel.app/>
 
 <p align="center">
   <img src="docs/screenshot-list.png" alt="Klepsydra's list of routines, each with a description, total time, a coloured timeline of its intervals and an info button; a settings cog at the top right, and the GitHub logo and deployed commit at the bottom" width="250">
