@@ -5,7 +5,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+      content="default-src 'none'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' https://accounts.google.com/gsi/style; connect-src 'self' https://www.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+<!-- Google sign-in and the Drive API are only for the optional Drive copy (app.js, "Google Drive copy"). -->
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#121212">
 <meta name="mobile-web-app-capable" content="yes">
@@ -39,6 +40,11 @@
     </div>
   </header>
   <p id="message" class="message" role="status"></p>
+  <div id="sync-notice" class="sync-notice" role="status" hidden>
+    <svg data-icon="cloud" aria-hidden="true"></svg>
+    <span id="sync-notice-text" class="sync-notice-text"></span>
+    <button id="sync-notice-btn" type="button" class="sync-notice-btn"></button>
+  </div>
   <ul id="timer-list" class="timer-list"></ul>
   <p id="empty" class="empty" hidden>No timers yet. Add one with ⚙ Settings → New timer.</p>
   <footer class="build-info"></footer>
@@ -94,6 +100,28 @@
     <input id="file-input" type="file" accept=".json,application/json" hidden>
   </div>
 
+  <div id="drive-section" hidden>
+    <h3 class="set-title">Google Drive</h3>
+    <div class="set-group">
+      <button id="drive-connect" type="button" class="set-row">
+        <svg data-icon="cloud" aria-hidden="true"></svg>
+        <span class="set-text">Connect Google Drive<small id="drive-connect-note"></small></span>
+      </button>
+      <button id="drive-sync" type="button" class="set-row" hidden>
+        <svg data-icon="cloud" aria-hidden="true"></svg>
+        <span class="set-text">Sync now<small id="drive-status" role="status"></small></span>
+      </button>
+      <button id="drive-disconnect" type="button" class="set-row" hidden>
+        <svg data-icon="unlink" aria-hidden="true"></svg>
+        <span class="set-text">Disconnect<small>Stops syncing here; the file stays in your Drive</small></span>
+      </button>
+    </div>
+    <p id="drive-message" class="message drive-message" role="alert"></p>
+    <p class="set-note">Klepsydra keeps a “Klepsydra timers.json” file in your Drive and can only see files it
+      created. It syncs after changes and on <b>Sync now</b>; Google asks you to sign in each time you open the
+      app. Drive keeps earlier versions of the file for 30 days.</p>
+  </div>
+
   <h3 class="set-title">Advanced</h3>
   <div class="set-group">
     <button id="edit" type="button" class="set-row">
@@ -105,8 +133,8 @@
       <span class="set-text">Restore default timers<small>Replaces all your timers</small></span>
     </button>
   </div>
-  <p class="set-note">Your timers are stored in this browser only. Back them up to keep a copy or to move them
-    to another device.</p>
+  <p class="set-note">Your timers are stored in this browser. Back them up<span id="drive-note" hidden>, or connect
+    Google Drive,</span> to keep a copy or to move them to another device.</p>
   <footer class="build-info"></footer>
 </main>
 
@@ -236,6 +264,30 @@
   </div>
 </dialog>
 
+<!-- Drive and this device both changed: how to settle it. -->
+<dialog id="sync-sheet" class="sheet" aria-labelledby="sync-sheet-title">
+  <div class="sheet-inner">
+    <header class="sheet-head">
+      <h2 id="sync-sheet-title"></h2>
+      <button id="sync-sheet-close" type="button" class="icon-btn" aria-label="Close">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+    <p id="sync-sheet-text" class="sync-text"></p>
+    <div class="sync-choices">
+      <button id="sync-merge" type="button" class="btn primary">Merge both</button>
+      <p class="sheet-note">Adds Drive’s timers that aren’t here after yours, then saves the result to Drive. A timer
+        changed on both sides is kept twice, Drive’s with “(2)” added to its name.</p>
+      <button id="sync-drive" type="button" class="btn">Use Drive’s copy</button>
+      <p class="sheet-note">Replaces all the timers on this device with Drive’s.</p>
+      <button id="sync-device" type="button" class="btn danger">Keep this device’s</button>
+      <p class="sheet-note">Replaces Drive’s timers with this device’s. Drive keeps earlier versions of the file for
+        30 days.</p>
+    </div>
+    <p id="sync-sheet-error" class="message" role="alert"></p>
+  </div>
+</dialog>
+
 <dialog id="sheet" class="sheet" aria-labelledby="sheet-title">
   <div class="sheet-inner">
     <header class="sheet-head">
@@ -291,6 +343,8 @@
   <svg data-name="down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>
   <svg data-name="more" viewBox="0 0 24 24"><circle class="fill" cx="5" cy="12" r="2"/><circle class="fill" cx="12" cy="12" r="2"/><circle class="fill" cx="19" cy="12" r="2"/></svg>
   <svg data-name="chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>
+  <svg data-name="cloud" viewBox="0 0 24 24"><path d="M7 19h10.5a4.5 4.5 0 0 0 .4-8.98A6 6 0 0 0 6.3 9.1 5 5 0 0 0 7 19z"/></svg>
+  <svg data-name="unlink" viewBox="0 0 24 24"><path d="M10 7H7a5 5 0 0 0 0 10h3M14 7h3a5 5 0 0 1 4 8M8 12h3M3 3l18 18"/></svg>
 </template>
 
 <!-- The GitHub link and the deployed commit, copied into the <footer class="build-info"> of every screen but the

@@ -37,6 +37,7 @@ Until you change anything, the app uses the bundled `timers.json`. Everything fo
 | **Restore from backup** | Replaces all your timers with a backup file. |
 | **Edit all timers as JSON** | Opens the whole file in a text editor, with **Format** and **Restore default**. |
 | **Restore default timers** | Goes back to the bundled timers. |
+| **Connect Google Drive** | Keeps a copy of your timers in your Google Drive and shares it between your devices (see below). |
 
 <p align="center">
   <img src="docs/screenshot-editor.png" alt="Editing the HIIT circuit: name, description, options, then the intervals, with a repeat block of 3 rounds shown as an indented group with minus and plus buttons" width="250">
@@ -50,7 +51,25 @@ several times; set the rounds with − / +, and use ⋯ for the block's own sett
 timer as text (see [FORMAT.md](FORMAT.md)). Nothing is saved until you tap **Save**.
 
 > [!IMPORTANT]
-> Saved timers live in this browser's local storage, on this device only. They don't sync between devices, and clearing the site's data (or uninstalling the app) deletes them. Use **Back up all timers** to keep a copy.
+> Saved timers live in this browser's local storage, on this device. Clearing the site's data (or uninstalling the app) deletes them. Use **Back up all timers** or **Connect Google Drive** to keep a copy.
+
+### Google Drive
+
+**⚙ Settings → Connect Google Drive** keeps a `Klepsydra timers.json` file in your Drive and uses it on every
+device you connect. Klepsydra can only see the file it created, and nothing is sent anywhere except your own
+Drive.
+
+- The app still works offline. It syncs a few seconds after you change something, when you leave the app, and on
+  **Sync now**.
+- Google asks for a tap to sign in each time you open the app (a notice above the list shows a **Sync now**
+  button), and again about every hour.
+- A new device that has never synced simply takes the timers from Drive. When this device and Drive both changed,
+  a notice asks you to choose: **Merge both** (adds Drive's timers that aren't here; one changed on both sides
+  is kept twice), **Use Drive's copy** or **Keep this device's**. Drive keeps earlier versions of the file for 30
+  days.
+- Only the Google account you connected with can sync. To switch accounts, disconnect and connect again.
+- Klepsydra saves from one tab or window at a time. If you open it again on the same device, the older one stops
+  saving and tells you; reload it to carry on there.
 
 ### Writing a timer with an AI assistant
 
@@ -72,6 +91,25 @@ Tap a timer in the list to open it.
 | Stop and rewind | ■ | |
 | Back to the list | ✕, or the phone's back button | Esc |
 | Show a routine's details (every interval, with its cue) | ⓘ on a routine in the list, or at the bottom right of the timer | |
+
+## Setting up Google Drive sync (for your own deployment)
+
+Sync runs entirely in the browser (Google Identity Services and the Drive API, scope `drive.file`). Without a
+client id the Drive section is hidden. It needs HTTPS or `localhost`.
+
+1. In Google Cloud Console, create a project and enable the **Google Drive API**.
+2. OAuth consent screen: External, in Testing, with your Google account as a test user; scope `drive.file`.
+3. Credentials → Create OAuth client ID → Web application. Authorized JavaScript origins: your site (e.g.
+   `https://<user>.github.io` or `https://<project>.vercel.app`) and the local address you test on
+   (e.g. `http://localhost:6080`).
+4. Give the client id to `build.sh`, which writes it to `public/google-client-id.txt`: on GitHub Pages as the
+   repository variable `GOOGLE_CLIENT_ID` (Settings → Secrets and variables → Actions → Variables), on Vercel as
+   the environment variable `GOOGLE_CLIENT_ID` (`vercel.json` runs `build.sh` and serves `public/`; redeploy after
+   changing the variable, it is read at build time), and locally in `.env.local` (see `.env.example`). The client id is
+   public, not a secret.
+
+Tests: `~/.venv/bin/python -m pytest tests` (Drive is tested against a stubbed Google; do one real sync after
+deploying).
 
 ## License
 

@@ -11,6 +11,8 @@ const CONFIG_URL = 'timers.json';
 const STORAGE_KEY = 'klepsydra:timers';
 const KEEP_AWAKE_KEY = 'klepsydra:keep-awake';
 const LEGACY_KEY = 'interval-timer:last-file';  // earlier versions remembered an opened file here
+const WRITER_KEY = 'klepsydra:writer';  // the tab that saves, see claimWriter
+const DRIVE_KEY = 'klepsydra:drive';    // what this device last synced with Google Drive
 const MAX_FILE_BYTES = 1024 * 1024;
 const REPO_URL = 'https://github.com/n03l/klepsydra';
 
@@ -654,6 +656,46 @@ function openDetails(timer, currentStep) {
 // Until then the bundled timers.json is used, so a redeploy with new defaults still reaches them.
 
 let currentText = '';  // JSON text behind the list, what Edit and Download work on
+let configReady = Promise.resolve();  // settles once loadConfig has shown the stored or default timers
+
+// One tab saves at a time. Every tab, the installed app's window and a forgotten background tab share
+// localStorage, each with its own copy in memory, so an older one could overwrite newer timers (or the
+// Drive sync state). The newest tab claims it at start; every write checks the claim first.
+class OtherTabError extends Error {
+  constructor() {
+    super('Klepsydra is open in another tab or window, which saves your timers now. Reload this one to use it here.');
+  }
+}
+const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+let writerLost = false;
+
+function claimWriter() {
+  try { localStorage.setItem(WRITER_KEY, tabId); } catch (e) { /* storage blocked: saving fails anyway */ }
+}
+
+// Throws OtherTabError, after telling the user, when another tab has claimed saving since.
+function ensureWriter() {
+  let writer = null;
+  try { writer = localStorage.getItem(WRITER_KEY); } catch (e) { /* blocked: the write itself fails */ }
+  if (writerLost || writer !== tabId) {
+    lostToOtherTab();
+    throw new OtherTabError();
+  }
+}
+
+function lostToOtherTab() {
+  if (writerLost) return;
+  writerLost = true;
+  stopSync();
+  const text = new OtherTabError().message;
+  showMessage(text);
+  settingsMessage(text);
+  renderSync();
+}
+
+function hasStored() {
+  try { return localStorage.getItem(STORAGE_KEY) !== null; } catch (e) { return false; }
+}
 
 function parseText(text) {
   let data;
@@ -666,6 +708,7 @@ function parseText(text) {
 }
 
 function writeStored(text) {
+  ensureWriter();
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, savedAt: new Date().toISOString() }));
   // Ask the browser not to evict our data under storage pressure (best effort, may be refused).
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -717,9 +760,13 @@ function timersFile() {
     const data = { timers: [] };  // the default couldn't be loaded: start an empty file
     return { data, list: data.timers };
   }
+  return timersOf(currentText);
+}
+
+function timersOf(text) {
   let data;
   try {
-    data = JSON.parse(currentText);
+    data = JSON.parse(text);
   } catch (e) {
     return null;
   }
@@ -751,10 +798,12 @@ function saveTimers(text, report) {
   try {
     writeStored(text);
   } catch (e) {
-    report(`Couldn't save in this browser (${e.name}). Download your timers to keep a copy.`);
+    report(e instanceof OtherTabError ? e.message
+      : `Couldn't save in this browser (${e.name}). Download your timers to keep a copy.`);
     return false;
   }
   showTimers(text);
+  scheduleSync();
   return true;
 }
 
@@ -866,12 +915,14 @@ async function restoreDefaultTimers() {
     return;
   }
   try {
+    ensureWriter();
     localStorage.removeItem(STORAGE_KEY);
   } catch (e) {
-    settingsMessage(`Couldn't change this browser's storage (${e.name}).`);
+    settingsMessage(e instanceof OtherTabError ? e.message : `Couldn't change this browser's storage (${e.name}).`);
     return;
   }
   showTimers(text);
+  scheduleSync();
   leaveSettings();
 }
 
@@ -890,6 +941,617 @@ async function showVersion() {
   } catch (e) {
     // offline and never cached: nothing to show
   }
+}
+
+// ---------------------------------------------------------------- Google Drive copy
+
+// Keeps a copy of the timers file in the user's Google Drive and shares it between devices. It all runs in
+// the browser: Google Identity Services hands out short-lived access tokens (about an hour, no refresh token
+// without a backend) and the Drive REST API stores one file. The scope is drive.file, so Klepsydra sees only
+// files it created. Tokens stay in memory, never in storage, URLs or messages. The device keeps what it last
+// synced (file, Drive version, hash of the text, account); comparing that with now tells who changed since.
+
+const GIS_URL = 'https://accounts.google.com/gsi/client';
+const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const DRIVE_FILES = 'https://www.googleapis.com/drive/v3/files';
+const DRIVE_ABOUT = 'https://www.googleapis.com/drive/v3/about';
+const DRIVE_UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
+const DRIVE_FILE_NAME = 'Klepsydra timers.json';
+const DRIVE_FIELDS = 'id,version';
+const DRIVE_ID = /^[\w-]{1,200}$/;
+const DRIVE_VERSION = /^\d{1,20}$/;
+const CLIENT_ID = /^[\w-]+\.apps\.googleusercontent\.com$/;
+const SYNC_DELAY_MS = 10000;  // after a change settles
+
+class DriveError extends Error {}
+
+// No valid token, and getting one needs a tap (Google opens a sign-in window).
+class NeedsSignIn extends DriveError {
+  constructor() { super('Tap Sync now to sign in to Google again.'); }
+}
+
+class DriveNotFound extends DriveError {}
+
+// 53-bit string hash (cyrb53). Detects changes, not tampering; needs no secure context. The text is stored
+// and uploaded exactly as it is, so hashing the text is enough.
+function hashText(text) {
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 2654435761);
+    h2 = Math.imul(h2 ^ c, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(36);
+}
+
+// What to do, from this device's hash, what it last synced (`state`) and Drive's file (null: none yet).
+// `neverSaved`: the bundled default timers, nothing of the user's. On a device that never synced Drive's copy
+// can simply be taken; after a sync, local changes (Restore default timers too) must not be undone unasked.
+function decideSync(localHash, state, remote, neverSaved) {
+  if (!remote) return 'create';
+  const localChanged = localHash !== state.hash;
+  if (remote.id === state.fileId && remote.version === state.version) return localChanged ? 'push' : 'none';
+  if (neverSaved && state.hash === undefined) return 'pull';
+  return localChanged ? 'conflict' : 'pull';
+}
+
+// Settles a pull or conflict once Drive's copy is downloaded. Drive's version counter also moves without
+// anyone editing the file, so its content is compared with what was last synced before calling it changed.
+// `local`: hash here when the sync started; `localNow`: after the download (an edit made meanwhile must not
+// be overwritten); `canTake`: no editor is open, so Drive's copy may replace the timers here.
+function afterDownload(action, { local, localNow, remote, synced, canTake }) {
+  if (remote === local) return 'record';
+  if (synced !== undefined && remote === synced) return 'push';
+  if (action === 'pull' && canTake && localNow === local) return 'take';
+  return 'conflict';
+}
+
+// Sync state read from the device. Anything unexpected in it means not connected (null).
+function parseSyncState(raw) {
+  if (!isPlainObject(raw)) return null;
+  const field = (key, ok) => (hasOwn(raw, key) && typeof raw[key] === 'string' && ok(raw[key]) ? raw[key] : undefined);
+  const state = {};
+  const fields = {
+    fileId: (v) => DRIVE_ID.test(v),
+    version: (v) => DRIVE_VERSION.test(v),
+    hash: (v) => /^[0-9a-z]{1,20}$/.test(v),
+    syncedAt: (v) => v.length <= 40 && !Number.isNaN(Date.parse(v)),
+    account: (v) => DRIVE_ID.test(v),
+  };
+  for (const [key, ok] of Object.entries(fields)) {
+    const v = field(key, ok);
+    if (v !== undefined) state[key] = v;
+  }
+  return state;
+}
+
+// A file description from the Drive API. Throws on anything unexpected.
+function parseRemoteFile(raw) {
+  const id = isPlainObject(raw) && hasOwn(raw, 'id') ? raw.id : undefined;
+  const version = isPlainObject(raw) && hasOwn(raw, 'version') ? raw.version : undefined;
+  if (typeof id !== 'string' || !DRIVE_ID.test(id) || typeof version !== 'string' || !DRIVE_VERSION.test(version)) {
+    throw new DriveError('Drive sent an unexpected file description.');
+  }
+  return { id, version };
+}
+
+// Both copies: this device's timers, then Drive's that aren't here. Nothing is deleted; a timer changed on
+// both sides appears twice, Drive's with "(2)" added to its name.
+function mergeTimers(localText, remoteText) {
+  const local = timersOf(localText);
+  const remote = timersOf(remoteText);
+  if (!local || !remote) {
+    throw new DriveError('One of the two timers files has an error, so they can\'t be merged. Use one of them instead.');
+  }
+  const seen = new Set(local.list.map((t) => JSON.stringify(t)));
+  const taken = new Set(local.list.map((t) => (isPlainObject(t) ? cleanName(t.name) : '')));
+  for (const t of remote.list) {
+    const key = JSON.stringify(t);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const copy = JSON.parse(key);
+    const name = isPlainObject(copy) ? cleanName(copy.name) : '';
+    if (name) {
+      copy.name = freeName(name, taken);
+      taken.add(copy.name);
+    }
+    local.list.push(copy);
+  }
+  if (local.list.length > LIMITS.timers) {
+    throw new DriveError(`Together the two copies have more than ${LIMITS.timers} timers. Use one of them instead.`);
+  }
+  return `${JSON.stringify(local.data, null, 2)}\n`;
+}
+
+// A timers file from Drive, checked like a restored backup before anything uses it.
+function checkDriveText(text) {
+  if (text.length > MAX_FILE_BYTES) throw new DriveError('The file in Drive is larger than 1 MB, too big to be Klepsydra timers.');
+  try {
+    parseText(text);
+  } catch (e) {
+    if (!(e instanceof ConfigError)) throw e;
+    throw new DriveError(`The file in Drive isn't a timers file: ${e.message}`);
+  }
+}
+
+// ---- Google sign-in and the Drive API
+
+let gisLoad = null;
+
+// Loads the Google sign-in script on first use, so starting the app offline doesn't depend on it.
+function loadGis() {
+  gisLoad = gisLoad || new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = GIS_URL;
+    s.async = true;
+    s.onload = () => {
+      const gis = window.google && window.google.accounts && window.google.accounts.oauth2;
+      if (gis) resolve(gis);
+      else reject(new DriveError('Google sign-in didn\'t load. Try again later.'));
+    };
+    s.onerror = () => {
+      gisLoad = null;
+      s.remove();
+      reject(new DriveError('Couldn\'t reach Google sign-in. Check your connection and try again.'));
+    };
+    document.head.append(s);
+  });
+  return gisLoad;
+}
+
+function signInError(type) {
+  if (type === 'popup_closed') return 'The Google sign-in window was closed before it finished.';
+  if (type === 'popup_failed_to_open') return 'The browser blocked the Google sign-in window. Allow pop-ups for this site and try again.';
+  return 'Google sign-in failed. Try again.';
+}
+
+function driveStatusError(status) {
+  if (status === 401) return new NeedsSignIn();
+  if (status === 403) return new DriveError('Drive refused the request (403). Disconnect and connect Google Drive again in Settings.');
+  if (status === 404) return new DriveNotFound('The Klepsydra file is no longer in Drive.');
+  if (status === 429 || status >= 500) return new DriveError(`Drive is busy right now (${status}). Try again in a minute.`);
+  return new DriveError(`Drive request failed (${status}).`);
+}
+
+const drive = {
+  clientId: '',
+  token: null,  // { value, expiresAt, account }
+  prompt: '',   // 'select_account' after signing in to the wrong account, so Google shows the chooser
+
+  hasToken() { return !!this.token && this.token.expiresAt > Date.now() + 60000; },
+
+  // A valid token. Without one, `interactive` opens Google's sign-in window (call it from a tap).
+  async getToken(interactive) {
+    if (this.hasToken()) return this.token.value;
+    if (!interactive) throw new NeedsSignIn();
+    if (!this.clientId) throw new DriveError('Drive sync isn\'t set up in this build.');
+    const gis = await loadGis();
+    const r = await new Promise((resolve, reject) => {
+      gis.initTokenClient({
+        client_id: this.clientId,
+        scope: DRIVE_SCOPE,
+        callback: resolve,
+        error_callback: (e) => reject(new DriveError(signInError(e && e.type))),
+      }).requestAccessToken({ prompt: this.prompt });
+    });
+    if (!isPlainObject(r) || r.error || typeof r.access_token !== 'string' || !r.access_token) {
+      throw new DriveError(isPlainObject(r) && r.error === 'access_denied' ? 'Google sign-in was cancelled.' : signInError());
+    }
+    if (!gis.hasGrantedAllScopes(r, DRIVE_SCOPE)) {
+      throw new DriveError('Klepsydra needs permission to keep its file in your Drive. Connect again and allow it.');
+    }
+    const sec = Number(r.expires_in);
+    const life = Number.isFinite(sec) && sec > 0 ? Math.min(sec, 3600) : 3000;
+    this.token = { value: r.access_token, expiresAt: Date.now() + life * 1000, account: '' };
+    this.prompt = '';
+    return this.token.value;
+  },
+
+  // Drive's permission id for the signed-in account (the token response doesn't say which it is).
+  async account() {
+    const t = this.token;
+    if (t && t.account) return t.account;
+    const body = await this.json(`${DRIVE_ABOUT}?fields=${encodeURIComponent('user(permissionId)')}`);
+    const user = isPlainObject(body) && hasOwn(body, 'user') ? body.user : undefined;
+    const id = isPlainObject(user) && hasOwn(user, 'permissionId') ? user.permissionId : undefined;
+    if (typeof id !== 'string' || !DRIVE_ID.test(id)) throw new DriveError('Drive sent an unexpected account description.');
+    if (t && this.token === t) t.account = id;
+    return id;
+  },
+
+  // Drops the token of a wrong account (without revoking it) and offers the chooser on the next sign-in.
+  chooseAccount() {
+    this.token = null;
+    this.prompt = 'select_account';
+  },
+
+  // Forgets the token and asks Google to revoke it. The file in Drive stays.
+  async signOut() {
+    const t = this.token && this.token.value;
+    this.token = null;
+    if (t) await loadGis().then((gis) => gis.revoke(t), () => undefined);
+  },
+
+  async call(url, init = {}) {
+    const token = await this.getToken(false);
+    let res;
+    try {
+      res = await fetch(url, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      throw new DriveError('Couldn\'t reach Google Drive. Check your connection and try again.');
+    }
+    if (res.status === 401) this.token = null;
+    if (!res.ok) throw driveStatusError(res.status);
+    return res;
+  },
+
+  async json(url, init) {
+    const res = await this.call(url, init);
+    try {
+      return await res.json();
+    } catch (e) {
+      throw new DriveError('Drive sent a reply Klepsydra couldn\'t read.');
+    }
+  },
+
+  // The file this app created, if any (the newest if there are several).
+  async find() {
+    const q = "appProperties has { key='klepsydra' and value='timers' } and trashed = false";
+    const body = await this.json(`${DRIVE_FILES}?q=${encodeURIComponent(q)}&orderBy=modifiedTime%20desc&pageSize=10`
+      + `&spaces=drive&fields=${encodeURIComponent(`files(${DRIVE_FIELDS})`)}`);
+    const files = isPlainObject(body) && hasOwn(body, 'files') ? body.files : undefined;
+    if (!Array.isArray(files)) throw new DriveError('Drive sent an unexpected file list.');
+    return files.length ? parseRemoteFile(files[0]) : null;
+  },
+
+  // The file's current version, or null if it was deleted or trashed.
+  async meta(fileId) {
+    try {
+      const body = await this.json(`${DRIVE_FILES}/${encodeURIComponent(fileId)}?fields=${DRIVE_FIELDS},trashed`);
+      if (isPlainObject(body) && hasOwn(body, 'trashed') && body.trashed === true) return null;
+      return parseRemoteFile(body);
+    } catch (e) {
+      if (e instanceof DriveNotFound) return null;
+      throw e;
+    }
+  },
+
+  // The file's text. Callers check it (checkDriveText) before using it.
+  async download(fileId) {
+    const res = await this.call(`${DRIVE_FILES}/${encodeURIComponent(fileId)}?alt=media`);
+    const tooBig = new DriveError('The file in Drive is larger than 1 MB, too big to be Klepsydra timers.');
+    if (Number(res.headers.get('content-length')) > MAX_FILE_BYTES) throw tooBig;
+    const text = await res.text();
+    if (text.length > MAX_FILE_BYTES) throw tooBig;
+    return text;
+  },
+
+  async create(text) {
+    const boundary = `klepsydra-${Math.random().toString(36).slice(2)}`;
+    const meta = { name: DRIVE_FILE_NAME, mimeType: 'application/json', appProperties: { klepsydra: 'timers' } };
+    const body = [
+      `--${boundary}`, 'Content-Type: application/json; charset=UTF-8', '', JSON.stringify(meta),
+      `--${boundary}`, 'Content-Type: application/json', '', text,
+      `--${boundary}--`, '',
+    ].join('\r\n');
+    return parseRemoteFile(await this.json(`${DRIVE_UPLOAD}?uploadType=multipart&fields=${DRIVE_FIELDS}`, {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    }));
+  },
+
+  async update(fileId, text) {
+    return parseRemoteFile(await this.json(`${DRIVE_UPLOAD}/${encodeURIComponent(fileId)}?uploadType=media&fields=${DRIVE_FIELDS}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: text,
+    }));
+  },
+};
+
+// ---- Syncing
+
+// `state` is null when not connected; `remote` holds Drive's copy ({ file, text }) during a conflict.
+// status: idle, syncing, signin (a tap is needed for a token: on every launch, and about hourly), conflict, error.
+const sync = { state: null, status: 'idle', message: '', remote: null, run: null, timer: undefined };
+
+function setSync(status, message = '') {
+  sync.status = status;
+  sync.message = message;
+  renderSync();
+}
+
+function readSyncState() {
+  try {
+    return parseSyncState(JSON.parse(localStorage.getItem(DRIVE_KEY) || 'null'));
+  } catch (e) {
+    return null;
+  }
+}
+
+// null disconnects.
+function writeSyncState(state) {
+  ensureWriter();
+  if (state) localStorage.setItem(DRIVE_KEY, JSON.stringify(state));
+  else localStorage.removeItem(DRIVE_KEY);
+}
+
+async function initDrive() {
+  try {
+    const res = await fetch('google-client-id.txt', { cache: 'no-cache' });
+    const id = res.ok ? (await res.text()).trim() : '';
+    drive.clientId = CLIENT_ID.test(id) ? id : '';
+  } catch (e) {
+    drive.clientId = '';  // offline and never cached: sync can't work now anyway
+  }
+  if (drive.clientId && isSecureContext) {
+    sync.state = readSyncState();
+    if (sync.state) sync.status = 'signin';
+  }
+  renderSync();
+}
+
+function stopSync() {
+  clearTimeout(sync.timer);
+}
+
+// Syncs a little after changes settle, while a token is at hand.
+function scheduleSync() {
+  stopSync();
+  if (sync.state && drive.hasToken() && !writerLost) sync.timer = setTimeout(autoSync, SYNC_DELAY_MS);
+}
+
+function autoSync() {
+  if (sync.state && drive.hasToken() && !writerLost && sync.status !== 'conflict') syncNow(false);
+}
+
+// Syncs now. `interactive` only from a tap: it may open Google's sign-in window.
+function syncNow(interactive = false) {
+  sync.run = sync.run || runSync(interactive).finally(() => { sync.run = null; });
+  return sync.run;
+}
+
+// Drive's copy may replace the timers only while no editor holds a copy of them (it would save over it).
+function canTakeRemote() {
+  return !screens.includes('edit') && !screens.includes('json');
+}
+
+// The timers this device would upload: they must load again, here and on other devices.
+function uploadText() {
+  const text = currentText;
+  if (!text) throw new DriveError('Your timers aren\'t loaded. Reload Klepsydra and try again.');
+  parseText(text);
+  return text;
+}
+
+async function runSync(interactive) {
+  const st = sync.state;
+  if (!st || writerLost) return;
+  stopSync();
+  setSync('syncing');
+  try {
+    await configReady;
+    ensureWriter();
+    const account = await driveSignIn(interactive);
+    const text = uploadText();
+    const hash = hashText(text);
+    const remote = (st.fileId ? await drive.meta(st.fileId) : null) || await drive.find();
+    const action = decideSync(hash, st, remote, !hasStored());
+    if (action === 'none') recordSync(remote, hash, account);
+    else if (action === 'create') recordSync(await drive.create(text), hash, account);
+    else if (action === 'push') recordSync(await drive.update(remote.id, text), hash, account);
+    else {
+      const raw = await drive.download(remote.id);
+      checkDriveText(raw);
+      const next = afterDownload(action, {
+        local: hash, localNow: hashText(currentText), remote: hashText(raw), synced: st.hash, canTake: canTakeRemote(),
+      });
+      if (next === 'record') recordSync(remote, hash, account);
+      else if (next === 'push') {
+        const now = uploadText();
+        recordSync(await drive.update(remote.id, now), hashText(now), account);
+      } else if (next === 'take') takeRemote(remote, raw, account);
+      else {
+        sync.remote = { file: remote, text: raw };
+        setSync('conflict');
+      }
+    }
+  } catch (err) {
+    syncFailed(err, 'error');
+  }
+}
+
+function syncFailed(err, status) {
+  if (err instanceof OtherTabError) {
+    setSync('idle');
+    return;
+  }
+  if (status === 'error' && err instanceof NeedsSignIn) {
+    setSync('signin');
+    return;
+  }
+  setSync(status, `Couldn't sync with Drive: ${err && err.message ? err.message : err}`);
+}
+
+// A token for the Google account this device syncs with. Another account sees other files (or none), so its
+// Drive could replace the timers here or receive a copy of them: that is refused.
+async function driveSignIn(interactive) {
+  await drive.getToken(interactive);
+  const account = await drive.account();
+  const want = sync.state && sync.state.account;
+  if (want && account !== want) {
+    drive.chooseAccount();
+    throw new DriveError('That\'s a different Google account from the one this device syncs with. '
+      + 'Tap Sync now and pick that account, or disconnect and connect again to switch.');
+  }
+  return account;
+}
+
+function recordSync(file, hash, account) {
+  const state = { fileId: file.id, version: file.version, hash, syncedAt: new Date().toISOString(), account };
+  writeSyncState(state);
+  sync.state = state;
+  sync.remote = null;
+  setSync('idle');
+}
+
+function takeRemote(file, text, account) {
+  let failure = '';
+  if (!saveTimers(text, (m) => { failure = m; })) throw new DriveError(failure);
+  stopSync();  // saveTimers scheduled an upload of what was just downloaded
+  recordSync(file, hashText(text), account);
+}
+
+// Settles a conflict: merge both, take Drive's copy, or overwrite Drive with this device's.
+async function resolveConflict(choice) {
+  // One sync at a time: a background one could otherwise upload in between.
+  while (sync.run) await sync.run;
+  sync.run = settle(choice).finally(() => { sync.run = null; });
+  return sync.run;
+}
+
+async function settle(choice) {
+  const remote = sync.remote;
+  if (!remote || !sync.state) return;
+  if (choice === 'drive' && !canTakeRemote()) {
+    setSync('conflict', 'Close the timer editor first, then use Drive\'s copy.');
+    return;
+  }
+  setSync('syncing');
+  try {
+    ensureWriter();
+    const account = await driveSignIn(true);
+    if (choice === 'drive') {
+      takeRemote(remote.file, remote.text, account);
+      return;
+    }
+    // Another device may have synced while the choice was open; overwriting that would lose its changes.
+    const current = await drive.meta(remote.file.id);
+    if (!current || current.id !== remote.file.id || current.version !== remote.file.version) {
+      sync.remote = null;
+      await runSync(true);
+      if (sync.status === 'conflict') setSync('conflict', 'Drive changed again on another device. Choose again.');
+      return;
+    }
+    if (choice === 'merge') {
+      const merged = mergeTimers(uploadText(), remote.text);
+      let failure = '';
+      if (!saveTimers(merged, (m) => { failure = m; })) throw new DriveError(failure);
+      stopSync();
+    }
+    const text = uploadText();
+    recordSync(await drive.update(remote.file.id, text), hashText(text), account);
+  } catch (err) {
+    syncFailed(err, 'conflict');
+  }
+}
+
+// Connect from a tap: sign in, then sync (which creates the file or picks up an existing one).
+async function connectDrive() {
+  setSync('idle');
+  try {
+    ensureWriter();
+    await drive.getToken(true);
+    writeSyncState({});
+  } catch (err) {
+    setSync('idle', err instanceof OtherTabError ? '' : err.message);
+    return;
+  }
+  sync.state = {};
+  await syncNow(true);
+}
+
+// Stops syncing on this device. The file in Drive is left as it is.
+async function disconnectDrive() {
+  while (sync.run) await sync.run;
+  stopSync();
+  await drive.signOut();
+  sync.state = null;
+  sync.remote = null;
+  try {
+    writeSyncState(null);
+    setSync('idle');
+  } catch (err) {
+    setSync('idle', err instanceof OtherTabError ? '' : `Couldn't disconnect on this device: ${err.message}`);
+  }
+}
+
+// ---- Drive in Settings, the notice on the list and the conflict sheet
+
+function syncedWhen(iso) {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString()
+    ? time : `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
+function syncStatusText() {
+  if (sync.status === 'syncing') return 'Syncing…';
+  if (sync.status === 'conflict') return 'Drive and this device both changed. Review it on the list.';
+  if (sync.status === 'signin') return 'Sign in to sync. Google asks again about every hour.';
+  if (sync.state && sync.state.syncedAt) return `Synced ${syncedWhen(sync.state.syncedAt)}`;
+  return 'Not synced yet.';
+}
+
+function timerCount(text) {
+  const file = timersOf(text);
+  if (!file) return 'a timers file with an error';
+  return `${file.list.length} timer${file.list.length === 1 ? '' : 's'}`;
+}
+
+function renderSync() {
+  if (!view.driveSection) return;
+  const available = !!drive.clientId;
+  const connected = !!sync.state;
+  const busy = sync.status === 'syncing';
+  view.driveSection.hidden = !available;
+  view.driveNote.hidden = !available;
+  view.driveConnect.hidden = connected;
+  view.driveConnect.disabled = !isSecureContext || writerLost;
+  view.driveConnectNote.textContent = isSecureContext
+    ? 'Keeps a copy of your timers in your Drive' : 'Needs a secure connection: open Klepsydra over HTTPS';
+  view.driveSync.hidden = view.driveDisconnect.hidden = !connected;
+  view.driveSync.disabled = view.driveDisconnect.disabled = busy || writerLost;
+  view.driveStatus.textContent = syncStatusText();
+  view.driveMessage.textContent = sync.status === 'conflict' ? '' : sync.message;
+
+  // The notice above the list: a conflict to review, or a sync waiting for a tap.
+  const first = !(sync.state && sync.state.hash);
+  let notice = '';
+  let action = '';
+  if (sync.status === 'conflict') {
+    notice = first ? 'Google Drive already has Klepsydra timers.' : 'Drive has changes from another device.';
+    action = 'Review';
+  } else if (sync.status === 'signin') {
+    notice = 'Drive sync is waiting for you to sign in.';
+    action = 'Sync now';
+  } else if (sync.status === 'error') {
+    notice = sync.message;
+    action = 'Try again';
+  }
+  view.syncNotice.hidden = !notice || writerLost;
+  view.syncNoticeText.textContent = notice;
+  view.syncNoticeBtn.textContent = action;
+
+  // The conflict sheet.
+  if (sync.status !== 'conflict' && sync.status !== 'syncing' && view.syncSheet.open) view.syncSheet.close();
+  if (sync.remote) {
+    view.syncSheetTitle.textContent = first ? 'Timers on Drive and here' : 'Both changed';
+    view.syncSheetText.textContent = `${first ? 'Google Drive and this device both have timers.'
+      : 'This device and Google Drive both changed since the last sync.'} Drive has ${timerCount(sync.remote.text)}; `
+      + `this device has ${timerCount(currentText)}.`;
+  }
+  for (const btn of [view.syncMerge, view.syncDrive, view.syncDevice]) btn.disabled = busy;
+  view.syncSheetError.textContent = sync.status === 'conflict' ? sync.message : '';
+}
+
+function onSyncNotice() {
+  if (sync.status === 'conflict') openDialog(view.syncSheet);
+  else syncNow(true);
 }
 
 // ---------------------------------------------------------------- editor
@@ -1064,7 +1726,7 @@ function settingsMessage(text) { view.settingsMessage.textContent = text; }
 function updateSettings() {
   const ok = timersFile() !== null;
   for (const btn of [view.manage, view.newTimer, view.import]) btn.disabled = !ok;
-  settingsMessage(ok ? '' : BROKEN_FILE);
+  settingsMessage(writerLost ? new OtherTabError().message : ok ? '' : BROKEN_FILE);
 }
 
 // After a change made from Settings, show the list with the result.
@@ -1587,7 +2249,15 @@ function init() {
     ivName: $('iv-name'), ivDuration: $('iv-duration'), ivComment: $('iv-comment'), ivCountdown: $('iv-countdown'),
     ivHalfway: $('iv-halfway'), ivPalette: $('iv-palette'),
     blRepeat: $('bl-repeat'), blCountdown: $('bl-countdown'), blHalfway: $('bl-halfway'),
+    driveSection: $('drive-section'), driveNote: $('drive-note'), driveConnect: $('drive-connect'),
+    driveConnectNote: $('drive-connect-note'), driveSync: $('drive-sync'), driveStatus: $('drive-status'),
+    driveDisconnect: $('drive-disconnect'), driveMessage: $('drive-message'),
+    syncNotice: $('sync-notice'), syncNoticeText: $('sync-notice-text'), syncNoticeBtn: $('sync-notice-btn'),
+    syncSheet: $('sync-sheet'), syncSheetTitle: $('sync-sheet-title'), syncSheetText: $('sync-sheet-text'),
+    syncSheetError: $('sync-sheet-error'), syncMerge: $('sync-merge'), syncDrive: $('sync-drive'),
+    syncDevice: $('sync-device'),
   });
+  claimWriter();
   for (const footer of document.querySelectorAll('footer.build-info')) {
     footer.append($('build-info').content.cloneNode(true));
   }
@@ -1608,6 +2278,19 @@ function init() {
   view.fileInput.addEventListener('change', onUpload);
   $('edit').addEventListener('click', openEditor);
   $('reset-default').addEventListener('click', restoreDefaultTimers);
+
+  // Google Drive
+  view.driveConnect.addEventListener('click', connectDrive);
+  view.driveSync.addEventListener('click', () => syncNow(true));
+  view.driveDisconnect.addEventListener('click', disconnectDrive);
+  view.syncNoticeBtn.addEventListener('click', onSyncNotice);
+  view.syncMerge.addEventListener('click', () => resolveConflict('merge'));
+  view.syncDrive.addEventListener('click', () => resolveConflict('drive'));
+  view.syncDevice.addEventListener('click', () => resolveConflict('device'));
+  $('sync-sheet-close').addEventListener('click', () => view.syncSheet.close());
+  window.addEventListener('storage', (e) => {
+    if (e.key === WRITER_KEY && e.newValue !== tabId) lostToOtherTab();
+  });
 
   // Whole-file JSON editor
   $('editor-cancel').addEventListener('click', () => history.back());
@@ -1669,7 +2352,7 @@ function init() {
   $('btn-close').addEventListener('click', () => history.back());
   $('btn-info').addEventListener('click', () => openDetails(run.timer, run.done ? null : current().step));
   $('details-close').addEventListener('click', () => view.details.close());
-  for (const d of [view.details, view.sheet]) {
+  for (const d of [view.details, view.sheet, view.syncSheet]) {
     d.addEventListener('click', (e) => { if (e.target === d) d.close(); });  // the backdrop
     // However the dialog closes (✕, Done, backdrop, Esc, back button), drop its history entry exactly once.
     d.addEventListener('close', () => {
@@ -1690,15 +2373,21 @@ function init() {
 
   document.addEventListener('visibilitychange', () => {
     // Browsers drop the lock when the page is hidden; take it again on return.
-    if (document.visibilityState === 'visible') syncWakeLock();
+    if (document.visibilityState === 'visible') {
+      syncWakeLock();
+      try { if (localStorage.getItem(WRITER_KEY) !== tabId) lostToOtherTab(); } catch (e) { /* blocked */ }
+    } else {
+      autoSync();  // the app may not come back: upload pending changes while a token is at hand
+    }
   });
 
   // rAF stops in background tabs; this keeps beeps and interval changes going (browsers slow it to ~1/s).
   setInterval(tick, 250);
   requestAnimationFrame(loop);
   initKeepAwakeSetting();
-  loadConfig();
+  configReady = loadConfig();
   showVersion();
+  initDrive();
 
   // Offline support and "install app"; only available on HTTPS or localhost.
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

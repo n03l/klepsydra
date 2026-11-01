@@ -677,3 +677,39 @@ textarea.input { resize: vertical; line-height: 1.35; }
 @media (prefers-reduced-motion: reduce) {
   .timer-view, .next-card, .setting input, .setting input::after { transition: none; }
 }
+
+/* ---------- Google Drive sync ---------- */
+
+/* Above the list: a conflict to review, or a sync waiting for a tap. */
+.sync-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 15px;
+}
+.sync-notice[hidden] { display: none; }
+.sync-notice svg { flex: none; width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.sync-notice-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.sync-notice-btn {
+  flex: none;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  background: var(--surface-hi);
+  color: var(--text);
+  font-size: 15px;
+}
+.sync-notice-btn:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.drive-message { margin: 8px 4px 0; }
+.sync-text { margin: 8px 4px 12px; color: var(--muted); font-size: 15px; line-height: 1.4; }
+.sync-choices { display: grid; gap: 4px; }
+.sync-choices .btn { width: 100%; }
+.sync-choices .btn:not(.primary) { background: var(--surface-hi); }
+.sync-choices .sheet-note { margin: 2px 4px 14px; line-height: 1.35; }
+.btn.danger { color: var(--danger); }
+#sync-sheet .message { margin: 4px 4px 0; }

@@ -5,12 +5,12 @@
 // phone always gets the latest deploy; the cache is only the fallback when the network fails.
 'use strict';
 
-const CACHE = 'klepsydra-v4';
+const CACHE = 'klepsydra-v5';
 const SHELL = [
   './', 'index.html', 'app.js', 'style.css', 'manifest.json', 'timers.json',
   'icons/favicon.png', 'icons/apple-touch-icon.png', 'icons/icon-192.png', 'icons/icon-512.png',
 ];
-const OPTIONAL = ['version.txt'];  // written by build.sh; absent when run from the sources
+const OPTIONAL = ['version.txt', 'google-client-id.txt'];  // written by build.sh; absent when run from the sources
 const NETWORK_TIMEOUT_MS = 4000;  // bad gym Wi-Fi: use the cached copy rather than hang
 
 self.addEventListener('install', (event) => {

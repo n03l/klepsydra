@@ -7,17 +7,15 @@ Serves a copy of the app with tests/fixtures/timers.json on 127.0.0.1 and drives
 headless with Playwright's fake clock, so no test waits in real time.
 """
 import functools
-import http.server
 import json
 import os
 import re
 import shutil
 import subprocess
-import threading
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import expect, sync_playwright
+from playwright.sync_api import expect
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_TEXT = (ROOT / "tests" / "fixtures" / "timers.json").read_text()
@@ -32,34 +30,6 @@ OscillatorNode.prototype.start = function (...args) {
 };
 """
 
-
-@pytest.fixture(scope="session")
-def server(tmp_path_factory):
-    # Serve what build.sh publishes (so a file missing from its list fails here), with the fixture timers.
-    src = tmp_path_factory.mktemp("src") / "app"
-    shutil.copytree(ROOT, src, ignore=shutil.ignore_patterns(".git", "tests", "public", ".pytest_cache", "__pycache__"))
-    env = {k: v for k, v in os.environ.items() if k != "GITHUB_SHA"}
-    subprocess.run(["sh", "build.sh"], cwd=src, env=env, check=True)
-    site = src / "public"
-    shutil.copy(ROOT / "tests" / "fixtures" / "timers.json", site / "timers.json")
-    handler = functools.partial(QuietHandler, directory=str(site))
-    httpd = http.server.ThreadingHTTPServer(("127.0.0.1", 0), handler)
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
-    yield f"http://127.0.0.1:{httpd.server_address[1]}/"
-    httpd.shutdown()
-
-
-class QuietHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, *args):
-        pass
-
-
-@pytest.fixture(scope="session")
-def browser():
-    with sync_playwright() as p:
-        b = p.chromium.launch()
-        yield b
-        b.close()
 
 # A stand-in for the Wake Lock API that logs requests and releases (headless Chromium refuses the real one).
 FAKE_WAKE_LOCK = """
@@ -697,15 +667,33 @@ def test_github_link_and_commit_on_every_screen_but_the_timer(browser, server):
 
 def test_build_publishes_only_the_app(tmp_path):
     src = tmp_path / "app"
-    shutil.copytree(ROOT, src, ignore=shutil.ignore_patterns(".git", "public", ".pytest_cache", "__pycache__"))
-    subprocess.run(["sh", "build.sh"], cwd=src, env={**os.environ, "GITHUB_SHA": "9293fe4" + "0" * 33},
-                   check=True)
+    shutil.copytree(ROOT, src, ignore=shutil.ignore_patterns(".git", "public", ".pytest_cache", "__pycache__", ".env.local"))
+    env = {k: v for k, v in os.environ.items() if k not in ("GOOGLE_CLIENT_ID", "GITHUB_SHA", "VERCEL_GIT_COMMIT_SHA")}
+    subprocess.run(["sh", "build.sh"], cwd=src, env={**env, "GITHUB_SHA": "9293fe4" + "0" * 33}, check=True)
     published = sorted(str(p.relative_to(src / "public")) for p in (src / "public").rglob("*") if p.is_file())
     assert published == sorted([
-        "LICENSE", "app.js", "icons/NOTICE", "icons/apple-touch-icon.png", "icons/favicon.png",
-        "icons/icon-192.png", "icons/icon-512.png", "index.html", "manifest.json", "style.css", "sw.js",
-        "timers.json", "version.txt"])
+        "LICENSE", "app.js", "google-client-id.txt", "icons/NOTICE", "icons/apple-touch-icon.png",
+        "icons/favicon.png", "icons/icon-192.png", "icons/icon-512.png", "index.html", "manifest.json",
+        "style.css", "sw.js", "timers.json", "version.txt"])
     assert (src / "public" / "version.txt").read_text() == "9293fe4" + "0" * 33 + "\n"
+    assert (src / "public" / "google-client-id.txt").read_text() == "\n"  # no client id: no Drive sync
+    # Vercel's build: its commit.
+    subprocess.run(["sh", "build.sh"], cwd=src, env={**env, "VERCEL_GIT_COMMIT_SHA": "a1b2c3d" + "0" * 33}, check=True)
+    assert (src / "public" / "version.txt").read_text() == "a1b2c3d" + "0" * 33 + "\n"
+    # vercel.json deploys exactly that build.
+    vercel = json.loads((ROOT / "vercel.json").read_text())
+    assert vercel["buildCommand"] == "sh build.sh" and vercel["outputDirectory"] == "public"
+
+    # The Drive client id comes from the environment, else .env.local, and must look like one.
+    run = functools.partial(subprocess.run, ["sh", "build.sh"], cwd=src, capture_output=True, text=True)
+    (src / ".env.local").write_text("GOOGLE_CLIENT_ID=12-ab.apps.googleusercontent.com\n")
+    assert run(env=env).returncode == 0
+    assert (src / "public" / "google-client-id.txt").read_text() == "12-ab.apps.googleusercontent.com\n"
+    assert run(env={**env, "GOOGLE_CLIENT_ID": "34-cd.apps.googleusercontent.com"}).returncode == 0
+    assert (src / "public" / "google-client-id.txt").read_text() == "34-cd.apps.googleusercontent.com\n"
+    bad = run(env={**env, "GOOGLE_CLIENT_ID": "x.example.com\"><script>"})
+    assert bad.returncode != 0 and "GOOGLE_CLIENT_ID" in bad.stderr
+    (src / ".env.local").unlink()
 
     # Built locally from a checkout: its commit.
     git = ["git", "-C", str(src), "-c", "user.name=t", "-c", "user.email=t@example.com"]

@@ -24,6 +24,9 @@ jobs:
         with:
           persist-credentials: false
       - run: sh build.sh
+        env:
+          # Public OAuth client id for Google Drive sync (Settings → Variables → Actions); empty hides it.
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
       - uses: actions/upload-pages-artifact@v5
         with:
           path: public
